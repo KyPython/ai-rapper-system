@@ -27,7 +27,7 @@ syllables==1.0.8
 
 # Database & Data Processing
 sqlalchemy==2.0.23
-pandas==2.1.3
+pandas>=2.2.0  # 2.2+ supports Python 3.13; using >= for compatibility
 numpy==1.26.2
 
 # Utilities
