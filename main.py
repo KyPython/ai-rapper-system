@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI):
         "primary_provider": os.getenv("PRIMARY_PROVIDER", "local"),
         "offline_mode": os.getenv("OFFLINE_MODE", "false").lower() == "true",
         "fallback_to_local": os.getenv("FALLBACK_TO_LOCAL", "true").lower() == "true",
-        "local_model_path": os.getenv("LOCAL_MODEL_PATH", "./models/local_lyric_generator.gguf"),
+        "local_model_path": os.getenv("LOCAL_MODEL_PATH", "./models/trained_model"),
         "use_gpu": os.getenv("USE_GPU", "false").lower() == "true",
         # Cloud providers
         "enable_claude": os.getenv("ENABLE_CLAUDE", "false").lower() == "true",
