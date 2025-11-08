@@ -5,6 +5,8 @@ SQLite for metrics, generations, and evaluations
 
 import sqlite3
 import logging
+import os
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import json
@@ -14,13 +16,18 @@ logger = logging.getLogger(__name__)
 
 class Database:
     """SQLite database manager for the rapper system"""
-    
+
     def __init__(self, db_path: str = "./data/metrics.db"):
         self.db_path = db_path
         self._init_database()
-    
+
     def _init_database(self):
         """Initialize database schema"""
+        # Ensure parent directory exists
+        db_dir = Path(self.db_path).parent
+        db_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"📁 Ensured database directory exists: {db_dir}")
+
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         

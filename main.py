@@ -70,7 +70,7 @@ async def lifespan(app: FastAPI):
         engine = LyricEngine(config)
         evaluator = LyricEvaluator(database_path=os.getenv("DATABASE_PATH", "./data/metrics.db"))
         sentiment_analyzer = SentimentAnalyzer()
-        ethos_manager = EthosDataManager()
+        ethos_manager = EthosDataManager(data_path=os.getenv("ETHOS_DATA_PATH", "./data/ethos_data.json"))
         database = Database(db_path=os.getenv("DATABASE_PATH", "./data/metrics.db"))
         logger.info("✅ All components initialized")
     except Exception as e:

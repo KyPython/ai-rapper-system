@@ -11,6 +11,10 @@ services:
         value: local
       - key: LOCAL_MODEL_PATH
         value: ./models/trained_model
+      - key: DATABASE_PATH
+        value: /tmp/metrics.db
+      - key: ETHOS_DATA_PATH
+        value: /tmp/ethos_data.json
       - key: USE_GPU
         value: false
       - key: API_PORT
