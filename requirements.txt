@@ -13,7 +13,9 @@ groq==0.4.1
 # Local Model Inference
 llama-cpp-python==0.2.20  # For GGUF models
 transformers==4.35.2
-torch==2.1.1
+# Use a torch wheel available for newer Python runtimes on Render
+# Torch 2.1.1 isn't available for Python 3.13 on Render; pin to a newer compatible release
+torch==2.5.0
 accelerate==0.25.0
 
 # NLP & Evaluation
