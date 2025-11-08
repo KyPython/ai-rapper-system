@@ -4,7 +4,7 @@ services:
     env: python
     region: oregon
     plan: free
-    buildCommand: pip install -r requirements.txt && python -c "import nltk; nltk.download('punkt'); nltk.download('cmudict'); nltk.download('averaged_perceptron_tagger')"
+    buildCommand: pip install -r requirements.txt && python -c "import nltk; nltk.download('punkt'); nltk.download('cmudict'); nltk.download('averaged_perceptron_tagger')" && curl -L -o trained_model.zip "https://drive.google.com/uc?export=download&id=1_1TKxVmOUJ_VbWDTsLPg_GLGmCLnKT-5" && unzip -q trained_model.zip -d models/ && rm trained_model.zip
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PRIMARY_PROVIDER
