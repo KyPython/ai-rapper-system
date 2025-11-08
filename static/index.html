@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎤 AI Rapper System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 800px;
+            height: 90vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            border-radius: 20px 20px 0 0;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            display: flex;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            justify-content: flex-end;
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            word-wrap: break-word;
+        }
+
+        .message.user .message-content {
+            background: #667eea;
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant .message-content {
+            background: white;
+            color: #333;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .message.assistant .message-content pre {
+            background: #f8f8f8;
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px 0;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+
+        .input-container {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            gap: 10px;
+        }
+
+        #promptInput {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 25px;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        #promptInput:focus {
+            border-color: #667eea;
+        }
+
+        #sendBtn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        #sendBtn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        #sendBtn:active {
+            transform: translateY(0);
+        }
+
+        #sendBtn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #667eea;
+            margin: 0 4px;
+            animation: pulse 1.4s infinite ease-in-out;
+        }
+
+        .loading:nth-child(2) { animation-delay: 0.2s; }
+        .loading:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes pulse {
+            0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+            40% { opacity: 1; transform: scale(1.2); }
+        }
+
+        .welcome {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+        }
+
+        .welcome h2 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .example-prompts {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .example-prompt {
+            background: white;
+            border: 2px solid #667eea;
+            color: #667eea;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 14px;
+        }
+
+        .example-prompt:hover {
+            background: #667eea;
+            color: white;
+            transform: translateY(-2px);
+        }
+
+        .stats {
+            background: #f8f8f8;
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 10px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        @media (max-width: 600px) {
+            .message-content {
+                max-width: 85%;
+            }
+            
+            .container {
+                height: 100vh;
+                border-radius: 0;
+            }
+            
+            .header {
+                border-radius: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎤 AI Rapper System</h1>
+            <p>Your trained GPT-2 model • Offline-ready • Zero cost</p>
+        </div>
+
+        <div class="chat-container" id="chatContainer">
+            <div class="welcome">
+                <h2>Welcome!</h2>
+                <p>Your custom-trained model is ready. What kind of bars do you want to write?</p>
+                <div class="example-prompts">
+                    <div class="example-prompt" onclick="useExample('Write aggressive battle rap bars')">⚔️ Battle bars</div>
+                    <div class="example-prompt" onclick="useExample('Write motivational rap about overcoming obstacles')">💪 Motivational</div>
+                    <div class="example-prompt" onclick="useExample('Write technical rap with complex wordplay')">🧠 Technical</div>
+                    <div class="example-prompt" onclick="useExample('Write confident bars about success')">👑 Confident</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="input-container">
+            <input 
+                type="text" 
+                id="promptInput" 
+                placeholder="Type your prompt... (e.g., 'Write battle rap bars about determination')"
+                onkeypress="handleKeyPress(event)"
+            >
+            <button id="sendBtn" onclick="generateLyrics()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        const chatContainer = document.getElementById('chatContainer');
+        const promptInput = document.getElementById('promptInput');
+        const sendBtn = document.getElementById('sendBtn');
+
+        function addMessage(content, isUser = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user' : 'assistant'}`;
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            
+            if (isUser) {
+                contentDiv.textContent = content;
+            } else {
+                contentDiv.innerHTML = content;
+            }
+            
+            messageDiv.appendChild(contentDiv);
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function addLoadingMessage() {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message assistant';
+            messageDiv.id = 'loadingMessage';
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            contentDiv.innerHTML = '<span class="loading"></span><span class="loading"></span><span class="loading"></span>';
+            
+            messageDiv.appendChild(contentDiv);
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function removeLoadingMessage() {
+            const loadingMsg = document.getElementById('loadingMessage');
+            if (loadingMsg) loadingMsg.remove();
+        }
+
+        async function generateLyrics() {
+            const prompt = promptInput.value.trim();
+            if (!prompt) return;
+
+            // Clear welcome message
+            const welcome = document.querySelector('.welcome');
+            if (welcome) welcome.remove();
+
+            // Add user message
+            addMessage(prompt, true);
+            promptInput.value = '';
+            
+            // Disable input
+            sendBtn.disabled = true;
+            promptInput.disabled = true;
+            addLoadingMessage();
+
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        max_length: 200,
+                        temperature: 0.9
+                    })
+                });
+
+                const data = await response.json();
+                removeLoadingMessage();
+
+                if (response.ok) {
+                    const lyrics = data.lyrics || data.text || 'No lyrics generated';
+                    const provider = data.provider || 'local';
+                    const latency = data.latency_ms ? (data.latency_ms / 1000).toFixed(2) : '?';
+                    
+                    const formattedLyrics = `<pre>${lyrics}</pre>
+                    <div class="stats">📊 Generated by: ${provider} • ⏱️ ${latency}s</div>`;
+                    
+                    addMessage(formattedLyrics);
+                } else {
+                    addMessage(`❌ Error: ${data.detail || 'Failed to generate lyrics'}`, false);
+                }
+            } catch (error) {
+                removeLoadingMessage();
+                addMessage(`❌ Connection error: ${error.message}`, false);
+            }
+
+            // Re-enable input
+            sendBtn.disabled = false;
+            promptInput.disabled = false;
+            promptInput.focus();
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                generateLyrics();
+            }
+        }
+
+        function useExample(prompt) {
+            promptInput.value = prompt;
+            generateLyrics();
+        }
+
+        // Focus input on load
+        promptInput.focus();
+    </script>
+</body>
+</html>

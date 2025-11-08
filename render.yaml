@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: ai-rapper-system
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt && python -c "import nltk; nltk.download('punkt'); nltk.download('cmudict'); nltk.download('averaged_perceptron_tagger')"
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PRIMARY_PROVIDER
+        value: local
+      - key: LOCAL_MODEL_PATH
+        value: ./models/trained_model
+      - key: USE_GPU
+        value: false
+      - key: API_PORT
+        value: 8000
+      - key: PYTHON_VERSION
+        value: 3.11.0
