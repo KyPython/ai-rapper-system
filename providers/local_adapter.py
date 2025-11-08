@@ -67,6 +67,7 @@ class LocalAdapter:
                 self.model_path,
                 torch_dtype=torch.float16 if device == "cuda" else torch.float32,
                 device_map="auto" if device == "cuda" else None,
+                low_cpu_mem_usage=True,  # Optimize memory usage during model loading
             )
             
             if device == "cpu":
@@ -79,11 +80,21 @@ class LocalAdapter:
             
         except Exception as e:
             logger.error(f"❌ Could not load HF Transformers model: {e}")
-        
-        # If both fail, create dummy model for development
-        logger.warning("⚠️  No model loaded - using dummy mode for development")
-        self.model_type = "dummy"
-        self.model_name = "local-dummy (no model)"
+
+            # Check if we should allow dummy mode (only for explicit testing)
+            allow_dummy = self.config.get("allow_dummy_mode", False)
+
+            if allow_dummy:
+                logger.warning("⚠️  No model loaded - using dummy mode for development")
+                self.model_type = "dummy"
+                self.model_name = "local-dummy (no model)"
+            else:
+                raise RuntimeError(
+                    f"Failed to load local model from {self.model_path}. "
+                    f"Tried both GGUF and HuggingFace Transformers formats. "
+                    f"Please ensure the model exists and is in the correct format. "
+                    f"Set 'allow_dummy_mode': True in config to use dummy mode for testing."
+                )
     
     async def generate(self, prompt: str, config: GenerationConfig) -> GenerationResult:
         """Generate text using local model"""
@@ -111,43 +122,52 @@ class LocalAdapter:
     
     async def _generate_gguf(self, prompt: str, config: GenerationConfig) -> str:
         """Generate using llama.cpp GGUF model"""
-        
-        response = self.model(
-            prompt,
-            max_tokens=config.max_tokens,
-            temperature=config.temperature,
-            top_p=config.top_p,
-            repeat_penalty=1.0 + config.frequency_penalty,
-            stop=config.stop_sequences,
-            echo=False,
-        )
-        
-        return response["choices"][0]["text"].strip()
+        import asyncio
+
+        def _sync_generate():
+            response = self.model(
+                prompt,
+                max_tokens=config.max_tokens,
+                temperature=config.temperature,
+                top_p=config.top_p,
+                repeat_penalty=1.0 + config.frequency_penalty,
+                stop=config.stop_sequences,
+                echo=False,
+            )
+            return response["choices"][0]["text"].strip()
+
+        # Run CPU-bound work in thread pool to avoid blocking event loop
+        return await asyncio.to_thread(_sync_generate)
     
     async def _generate_transformers(self, prompt: str, config: GenerationConfig) -> str:
         """Generate using Hugging Face Transformers"""
         import torch
-        
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
-        
-        with torch.no_grad():
-            outputs = self.model.generate(
-                **inputs,
-                max_new_tokens=config.max_tokens,
-                temperature=config.temperature,
-                top_p=config.top_p,
-                repetition_penalty=1.0 + config.frequency_penalty,
-                do_sample=True,
-                pad_token_id=self.tokenizer.eos_token_id,
+        import asyncio
+
+        def _sync_generate():
+            inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=config.max_tokens,
+                    temperature=config.temperature,
+                    top_p=config.top_p,
+                    repetition_penalty=1.0 + config.frequency_penalty,
+                    do_sample=True,
+                    pad_token_id=self.tokenizer.eos_token_id,
+                )
+
+            # Decode only the generated part (not the prompt)
+            generated_text = self.tokenizer.decode(
+                outputs[0][inputs["input_ids"].shape[1]:],
+                skip_special_tokens=True
             )
-        
-        # Decode only the generated part (not the prompt)
-        generated_text = self.tokenizer.decode(
-            outputs[0][inputs["input_ids"].shape[1]:],
-            skip_special_tokens=True
-        )
-        
-        return generated_text.strip()
+
+            return generated_text.strip()
+
+        # Run CPU-bound work in thread pool to avoid blocking event loop
+        return await asyncio.to_thread(_sync_generate)
     
     async def _generate_dummy(self, prompt: str, config: GenerationConfig) -> str:
         """Dummy generation for development/testing"""
