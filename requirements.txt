@@ -1,7 +1,7 @@
 # Core Dependencies
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
-pydantic==2.5.0
+pydantic>=2.6.0  # 2.6+ has pre-built wheels, avoids Rust compilation
 python-dotenv==1.0.0
 
 # AI Provider SDKs

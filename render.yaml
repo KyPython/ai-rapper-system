@@ -4,8 +4,6 @@ services:
     env: python
     region: oregon
     plan: free
-    # Pin Python 3.11 - pandas 2.1.3 doesn't compile on Python 3.13
-    runtime: python-3.11
     buildCommand: pip install -r requirements.txt && python -c "import nltk; nltk.download('punkt'); nltk.download('cmudict'); nltk.download('averaged_perceptron_tagger')" && curl -L -o trained_model.zip "https://drive.google.com/uc?export=download&id=1_1TKxVmOUJ_VbWDTsLPg_GLGmCLnKT-5" && unzip -q trained_model.zip -d models/ && rm trained_model.zip
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
