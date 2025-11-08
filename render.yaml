@@ -11,6 +11,8 @@ services:
         value: local
       - key: LOCAL_MODEL_PATH
         value: ./models/trained_model
+      - key: LAZY_LOAD
+        value: true
       - key: DATABASE_PATH
         value: /tmp/metrics.db
       - key: ETHOS_DATA_PATH

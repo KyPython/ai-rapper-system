@@ -22,11 +22,14 @@ class LocalAdapter:
         self.config = config
         self.model_path = config.get("local_model_path", "./models/local_lyric_generator.gguf")
         self.use_gpu = config.get("use_gpu", False)
+        self.lazy_load = config.get("lazy_load", True)  # Load on first request, not at startup
         self.model = None
         self.model_type = None
         self.model_name = "local"
-        
-        self._load_model()
+        self._model_loaded = False
+
+        if not self.lazy_load:
+            self._load_model()
     
     def _load_model(self):
         """Load local model - try GGUF first, fallback to HF Transformers"""
@@ -98,9 +101,15 @@ class LocalAdapter:
     
     async def generate(self, prompt: str, config: GenerationConfig) -> GenerationResult:
         """Generate text using local model"""
-        
+
+        # Lazy load model on first request if not already loaded
+        if self.lazy_load and not self._model_loaded:
+            logger.info("🔄 Lazy loading model on first request...")
+            self._load_model()
+            self._model_loaded = True
+
         start_time = time.time()
-        
+
         if self.model_type == "gguf":
             text = await self._generate_gguf(prompt, config)
         elif self.model_type == "transformers":

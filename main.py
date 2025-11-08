@@ -54,6 +54,7 @@ async def lifespan(app: FastAPI):
         "fallback_to_local": os.getenv("FALLBACK_TO_LOCAL", "true").lower() == "true",
         "local_model_path": os.getenv("LOCAL_MODEL_PATH", "./models/trained_model"),
         "use_gpu": os.getenv("USE_GPU", "false").lower() == "true",
+        "lazy_load": os.getenv("LAZY_LOAD", "true").lower() == "true",  # Load model on first request
         # Cloud providers
         "enable_claude": os.getenv("ENABLE_CLAUDE", "false").lower() == "true",
         "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY"),
