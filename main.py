@@ -129,15 +129,7 @@ class EthosContentRequest(BaseModel):
     tags: Optional[List[str]] = Field(None)
 
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-
 # API Endpoints
-@app.get("/")
-async def root():
-    """Serve the web interface"""
-    return FileResponse("static/index.html")
 
 
 @app.get("/api")
@@ -373,6 +365,16 @@ async def get_recent_generations(limit: int = 10):
         raise HTTPException(status_code=503, detail="Database not initialized")
     
     return database.get_recent_generations(limit)
+
+
+# Mount static files after all API routes
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/")
+async def root():
+    """Serve the web interface"""
+    return FileResponse("static/index.html")
 
 
 if __name__ == "__main__":
