@@ -1,392 +1,350 @@
 """
-FastAPI Backend - Main Application
-Provider-agnostic API with health checks and routing
+FastAPI Server with Dark Connecticut Music Framework Enforcement
+Endpoints for lyric generation with framework validation
 """
 
-import os
-import logging
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from typing import Optional, List
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+import os
 from dotenv import load_dotenv
+import asyncio
 
-from providers import LyricEngine, GenerationConfig
-from scripts.evaluate import LyricEvaluator, compare_lyrics
-from scripts.sentiment_analysis import SentimentAnalyzer, EthosDataManager
-from scripts.database import Database
+from providers.abstraction_layer import (
+    LyricEngine, 
+    GenerationConfig, 
+    FrameworkValidator,
+    DARK_CT_FRAMEWORK
+)
 
-# Load environment variables
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-
-# Global instances
-engine = None
-evaluator = None
-sentiment_analyzer = None
-ethos_manager = None
-database = None
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Lifecycle management"""
-    global engine, evaluator, sentiment_analyzer, ethos_manager, database
-    
-    # Startup
-    logger.info("🚀 Starting AI Rapper System...")
-    
-    # Load configuration
-    config = {
-        "primary_provider": os.getenv("PRIMARY_PROVIDER", "local"),
-        "offline_mode": os.getenv("OFFLINE_MODE", "false").lower() == "true",
-        "fallback_to_local": os.getenv("FALLBACK_TO_LOCAL", "true").lower() == "true",
-        "local_model_path": os.getenv("LOCAL_MODEL_PATH", "./models/trained_model"),
-        "use_gpu": os.getenv("USE_GPU", "false").lower() == "true",
-        "lazy_load": os.getenv("LAZY_LOAD", "true").lower() == "true",  # Load model on first request
-        # Cloud providers
-        "enable_claude": os.getenv("ENABLE_CLAUDE", "false").lower() == "true",
-        "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY"),
-        "enable_openai": os.getenv("ENABLE_OPENAI", "false").lower() == "true",
-        "openai_api_key": os.getenv("OPENAI_API_KEY"),
-        "enable_gemini": os.getenv("ENABLE_GEMINI", "false").lower() == "true",
-        "google_api_key": os.getenv("GOOGLE_API_KEY"),
-        "enable_groq": os.getenv("ENABLE_GROQ", "false").lower() == "true",
-        "groq_api_key": os.getenv("GROQ_API_KEY"),
-    }
-    
-    # Initialize components
-    try:
-        engine = LyricEngine(config)
-        evaluator = LyricEvaluator(database_path=os.getenv("DATABASE_PATH", "./data/metrics.db"))
-        sentiment_analyzer = SentimentAnalyzer()
-        ethos_manager = EthosDataManager(data_path=os.getenv("ETHOS_DATA_PATH", "./data/ethos_data.json"))
-        database = Database(db_path=os.getenv("DATABASE_PATH", "./data/metrics.db"))
-        logger.info("✅ All components initialized")
-    except Exception as e:
-        logger.error(f"❌ Initialization failed: {e}")
-        raise
-    
-    yield
-    
-    # Shutdown
-    logger.info("👋 Shutting down AI Rapper System...")
-
-
-# Create FastAPI app
+# Initialize FastAPI
 app = FastAPI(
-    title="AI Rapper System",
-    description="AI-agnostic rapper system with local-first architecture",
-    version="1.0.0",
-    lifespan=lifespan,
+    title="Dark Connecticut AI Rapper System",
+    description="Framework-enforced lyric generation with multi-provider support",
+    version="1.0.0"
 )
 
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Initialize LyricEngine
+config = {
+    "primary_provider": os.getenv("PRIMARY_PROVIDER", "local"),
+    "local_model_path": os.getenv("LOCAL_MODEL_PATH", "./models/my_model.gguf"),
+    "fallback_to_local": os.getenv("FALLBACK_TO_LOCAL", "true").lower() == "true",
+    "offline_mode": os.getenv("OFFLINE_MODE", "false").lower() == "true",
+    "enforce_framework": os.getenv("ENFORCE_FRAMEWORK", "true").lower() == "true",
+    
+    # Cloud providers
+    "enable_claude": os.getenv("ENABLE_CLAUDE", "false").lower() == "true",
+    "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY"),
+    
+    "enable_openai": os.getenv("ENABLE_OPENAI", "false").lower() == "true",
+    "openai_api_key": os.getenv("OPENAI_API_KEY"),
+    
+    "enable_gemini": os.getenv("ENABLE_GEMINI", "false").lower() == "true",
+    "google_api_key": os.getenv("GOOGLE_API_KEY"),
+    
+    "enable_groq": os.getenv("ENABLE_GROQ", "false").lower() == "true",
+    "groq_api_key": os.getenv("GROQ_API_KEY"),
+}
+
+engine = LyricEngine(config)
 
 
-# Request/Response Models
+# ============================================================================
+# REQUEST/RESPONSE MODELS
+# ============================================================================
+
 class GenerateRequest(BaseModel):
-    prompt: str = Field(..., description="The generation prompt")
-    provider: Optional[str] = Field(None, description="Specific provider to use")
-    max_tokens: int = Field(512, ge=1, le=2048)
-    temperature: float = Field(0.9, ge=0.0, le=2.0)
-    evaluate: bool = Field(True, description="Whether to evaluate the output")
+    """Request for lyric generation"""
+    prompt: str
+    provider: Optional[str] = None
+    max_tokens: Optional[int] = 512
+    temperature: Optional[float] = 0.9
+    enforce_framework: Optional[bool] = True
+
+
+class GenerateResponse(BaseModel):
+    """Response with generated lyrics"""
+    lyrics: str
+    provider: str
+    model: str
+    framework_compliant: bool
+    framework_violations: List[str]
+    tokens_used: int
+    latency_ms: float
 
 
 class EnsembleRequest(BaseModel):
-    prompt: str = Field(..., description="The generation prompt")
-    providers: Optional[List[str]] = Field(None, description="Providers to use")
-    max_tokens: int = Field(512, ge=1, le=2048)
-    temperature: float = Field(0.9, ge=0.0, le=2.0)
+    """Request for multi-provider ensemble generation"""
+    prompt: str
+    providers: Optional[List[str]] = None
+    max_tokens: Optional[int] = 512
+    temperature: Optional[float] = 0.9
+    enforce_framework: Optional[bool] = True
+    return_best_only: Optional[bool] = False
 
 
-class SentimentRequest(BaseModel):
-    text: str = Field(..., description="Text to analyze")
-    motivational: bool = Field(False, description="Include motivational analysis")
+class ValidateRequest(BaseModel):
+    """Request to validate existing lyrics"""
+    lyrics: str
 
 
-class EthosContentRequest(BaseModel):
-    content: str = Field(..., description="Motivational content")
-    category: str = Field(..., description="Category (motivational_quotes, battle_phrases, confidence_builders)")
-    tags: Optional[List[str]] = Field(None)
+class ValidateResponse(BaseModel):
+    """Validation results"""
+    compliant: bool
+    violations: List[str]
+    score: float
 
 
-# API Endpoints
+# ============================================================================
+# ENDPOINTS
+# ============================================================================
 
-
-@app.get("/api")
-async def api_root():
-    """API status endpoint"""
+@app.get("/")
+async def root():
+    """Welcome endpoint"""
     return {
-        "message": "AI Rapper System - Provider-Agnostic Lyric Generation",
+        "name": "Dark Connecticut AI Rapper System",
         "version": "1.0.0",
-        "status": "online",
+        "framework_enforced": True,
+        "endpoints": {
+            "health": "/health",
+            "generate": "/generate",
+            "generate_ensemble": "/generate/ensemble",
+            "validate": "/validate",
+            "framework": "/framework",
+            "providers": "/providers",
+        }
     }
 
 
 @app.get("/health")
-async def health_check():
-    """Health check for all providers"""
-    if not engine:
-        raise HTTPException(status_code=503, detail="Engine not initialized")
+async def health():
+    """Health check"""
+    return {
+        "status": "healthy",
+        "engine": engine.health_check()
+    }
+
+
+@app.get("/framework")
+async def get_framework():
+    """Get the Dark Connecticut Music Framework"""
+    return {
+        "framework": engine.get_framework(),
+        "enforcement_enabled": engine.enforce_framework
+    }
+
+
+@app.post("/generate")
+async def generate(request: GenerateRequest) -> GenerateResponse:
+    """
+    Generate lyrics with Dark CT Framework enforcement
     
-    return engine.health_check()
+    Example:
+    {
+        "prompt": "Write a hook about breaking the family curse through sacrifice",
+        "provider": "local",
+        "enforce_framework": true
+    }
+    """
+    try:
+        config = GenerationConfig(
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
+            enforce_framework=request.enforce_framework
+        )
+        
+        result = await engine.generate(request.prompt, request.provider, config)
+        
+        return GenerateResponse(
+            lyrics=result.text,
+            provider=result.provider,
+            model=result.model,
+            framework_compliant=result.framework_compliant,
+            framework_violations=result.framework_violations,
+            tokens_used=result.tokens_used,
+            latency_ms=result.latency_ms
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/generate/ensemble")
+async def generate_ensemble(request: EnsembleRequest) -> dict:
+    """
+    Generate from multiple providers simultaneously
+    All outputs framework-validated and sorted by compliance
+    
+    Example:
+    {
+        "prompt": "Write Verse 1 about the Merritt Parkway commute",
+        "providers": ["local", "claude", "openai"],
+        "enforce_framework": true,
+        "return_best_only": false
+    }
+    """
+    try:
+        config = GenerationConfig(
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
+            enforce_framework=request.enforce_framework
+        )
+        
+        results = await engine.generate_ensemble(request.prompt, request.providers, config)
+        
+        # Format responses
+        formatted_results = []
+        for result in results:
+            formatted_results.append({
+                "lyrics": result.text,
+                "provider": result.provider,
+                "model": result.model,
+                "framework_compliant": result.framework_compliant,
+                "framework_violations": result.framework_violations,
+                "tokens_used": result.tokens_used,
+                "latency_ms": result.latency_ms,
+            })
+        
+        if request.return_best_only and formatted_results:
+            return {
+                "best_result": formatted_results[0],
+                "total_attempts": len(formatted_results),
+                "framework_compliant_count": sum(1 for r in formatted_results if r["framework_compliant"])
+            }
+        
+        return {
+            "results": formatted_results,
+            "total_attempts": len(formatted_results),
+            "framework_compliant_count": sum(1 for r in formatted_results if r["framework_compliant"]),
+            "best_result": formatted_results[0] if formatted_results else None
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/validate")
+async def validate(request: ValidateRequest) -> ValidateResponse:
+    """
+    Validate existing lyrics against Dark CT Framework
+    
+    Example:
+    {
+        "lyrics": "[Hook]\nCruising up the Merritt, same road, same scene..."
+    }
+    """
+    try:
+        compliant, violations = FrameworkValidator.validate(request.lyrics)
+        
+        # Calculate compliance score (0-100)
+        score = 100 if not violations else max(0, 100 - (len(violations) * 15))
+        
+        return ValidateResponse(
+            compliant=compliant,
+            violations=violations,
+            score=score
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/providers")
 async def list_providers():
     """List available providers"""
-    if not engine:
-        raise HTTPException(status_code=503, detail="Engine not initialized")
-    
     return {
-        "primary": engine.primary_provider,
         "available": engine.get_available_providers(),
-        "offline_mode": engine.offline_mode,
-        "fallback_enabled": engine.fallback_enabled,
+        "primary": engine.primary_provider,
+        "details": engine.health_check()["providers"]
     }
 
 
 @app.post("/providers/switch")
 async def switch_provider(provider: str):
     """Switch primary provider"""
-    if not engine:
-        raise HTTPException(status_code=503, detail="Engine not initialized")
-    
     success = engine.switch_provider(provider)
+    
     if not success:
-        raise HTTPException(status_code=400, detail=f"Provider '{provider}' not available")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Provider '{provider}' not available"
+        )
     
     return {
-        "message": f"Switched to {provider}",
-        "primary_provider": engine.primary_provider,
+        "status": "switched",
+        "new_primary": engine.primary_provider,
+        "available": engine.get_available_providers()
     }
 
 
-@app.post("/generate")
-async def generate_lyrics(request: GenerateRequest, background_tasks: BackgroundTasks):
-    """Generate lyrics using specified provider"""
-    if not engine:
-        raise HTTPException(status_code=503, detail="Engine not initialized")
+@app.post("/framework/toggle")
+async def toggle_framework(enabled: bool):
+    """Enable/disable framework enforcement globally"""
+    engine.set_framework_enforcement(enabled)
     
-    try:
-        # Create generation config
-        config = GenerationConfig(
-            max_tokens=request.max_tokens,
-            temperature=request.temperature,
-        )
-        
-        # Generate
-        result = await engine.generate(
-            prompt=request.prompt,
-            provider=request.provider,
-            config=config,
-        )
-        
-        # Save to database
-        generation_id = database.save_generation(
-            prompt=request.prompt,
-            lyrics=result.text,
-            provider=result.provider,
-            model=result.model,
-            tokens_used=result.tokens_used,
-            latency_ms=result.latency_ms,
-            metadata=result.metadata,
-        )
-        
-        # Update provider usage
-        database.update_provider_usage(
-            provider=result.provider,
-            model=result.model,
-            tokens_used=result.tokens_used,
-            latency_ms=result.latency_ms,
-            success=True,
-        )
-        
-        # Evaluate if requested
-        evaluation = None
-        if request.evaluate and evaluator:
-            metrics = evaluator.evaluate(result.text)
-            evaluation = metrics.to_dict()
-            
-            # Save evaluation
-            background_tasks.add_task(database.save_evaluation, generation_id, evaluation)
-        
-        return {
-            "generation_id": generation_id,
-            "lyrics": result.text,
-            "provider": result.provider,
-            "model": result.model,
-            "tokens_used": result.tokens_used,
-            "latency_ms": result.latency_ms,
-            "evaluation": evaluation,
+    return {
+        "framework_enforcement": engine.enforce_framework,
+        "status": "updated"
+    }
+
+
+@app.get("/framework/checklist")
+async def get_framework_checklist():
+    """Get framework compliance checklist"""
+    return {
+        "checklist": [
+            "✓ Does this serve 'defiant hope' thesis?",
+            "✓ Minor key harmony implied (or compatible)?",
+            "✓ Specific personal details (Bridgeport-grounded)?",
+            "✓ NO toxic/negative framing?",
+            "✓ Authentic voice (no fake dialogue)?",
+            "✓ Flow changes where narrative breaks?",
+            "✓ Ends on IV or VI (cadential ambiguity)?",
+            "✓ Could realistically come from this person's life?"
+        ],
+        "sonic_signature": {
+            "bpm": "135-150 (default 140)",
+            "key": "Minor (struggle focus)",
+            "drums": "Grimy 808s, muffled kicks (250-400 Hz), double-tap snare, swung hi-hats",
+            "melody": "Dark melodic loops (minor key), NO bright synths",
+            "tone": "Anthem for survival (NOT dance/celebration)"
         }
-        
-    except Exception as e:
-        logger.error(f"Generation failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    }
 
 
-@app.post("/generate/ensemble")
-async def generate_ensemble(request: EnsembleRequest):
-    """Generate lyrics from multiple providers and compare"""
-    if not engine:
-        raise HTTPException(status_code=503, detail="Engine not initialized")
-    
-    try:
-        config = GenerationConfig(
-            max_tokens=request.max_tokens,
-            temperature=request.temperature,
-        )
-        
-        results = await engine.generate_ensemble(
-            prompt=request.prompt,
-            providers=request.providers,
-            config=config,
-        )
-        
-        # Compare results
-        lyrics_list = [r.text for r in results]
-        comparison = compare_lyrics(lyrics_list, evaluator)
-        
-        # Format response
-        return {
-            "generations": [
-                {
-                    "lyrics": r.text,
-                    "provider": r.provider,
-                    "model": r.model,
-                    "tokens_used": r.tokens_used,
-                    "latency_ms": r.latency_ms,
-                }
-                for r in results
-            ],
-            "comparison": comparison,
-        }
-        
-    except Exception as e:
-        logger.error(f"Ensemble generation failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+# ============================================================================
+# ERROR HANDLERS
+# ============================================================================
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    """Global exception handler"""
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "error_type": type(exc).__name__}
+    )
 
 
-@app.post("/evaluate")
-async def evaluate_lyrics(lyrics: str):
-    """Evaluate existing lyrics"""
-    if not evaluator:
-        raise HTTPException(status_code=503, detail="Evaluator not initialized")
-    
-    try:
-        metrics = evaluator.evaluate(lyrics)
-        return metrics.to_dict()
-    except Exception as e:
-        logger.error(f"Evaluation failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+# ============================================================================
+# STARTUP
+# ============================================================================
 
-
-@app.post("/sentiment")
-async def analyze_sentiment(request: SentimentRequest):
-    """Analyze sentiment of text"""
-    if not sentiment_analyzer:
-        raise HTTPException(status_code=503, detail="Sentiment analyzer not initialized")
-    
-    try:
-        if request.motivational:
-            return sentiment_analyzer.analyze_motivational_content(request.text)
-        else:
-            return sentiment_analyzer.analyze(request.text)
-    except Exception as e:
-        logger.error(f"Sentiment analysis failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/ethos/add")
-async def add_ethos_content(request: EthosContentRequest):
-    """Add motivational content to ethos database"""
-    if not ethos_manager:
-        raise HTTPException(status_code=503, detail="Ethos manager not initialized")
-    
-    try:
-        ethos_manager.add_motivational_content(
-            content=request.content,
-            category=request.category,
-            tags=request.tags,
-        )
-        return {"message": "Content added successfully"}
-    except Exception as e:
-        logger.error(f"Failed to add ethos content: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/ethos/prompt")
-async def get_ethos_prompt(mood: Optional[str] = None):
-    """Get motivational prompt for enhancement"""
-    if not ethos_manager:
-        raise HTTPException(status_code=503, detail="Ethos manager not initialized")
-    
-    return {"prompt": ethos_manager.get_motivational_prompt(mood)}
-
-
-@app.get("/stats")
-async def get_statistics():
-    """Get system statistics"""
-    if not database:
-        raise HTTPException(status_code=503, detail="Database not initialized")
-    
-    stats = database.get_statistics()
-    
-    if ethos_manager:
-        stats["ethos"] = ethos_manager.get_statistics()
-    
-    return stats
-
-
-@app.get("/generations/recent")
-async def get_recent_generations(limit: int = 10):
-    """Get recent generations"""
-    if not database:
-        raise HTTPException(status_code=503, detail="Database not initialized")
-    
-    return database.get_recent_generations(limit)
-
-
-# Mount static files after all API routes
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-
-@app.get("/")
-async def root():
-    """Serve the web interface"""
-    return FileResponse("static/index.html")
+@app.on_event("startup")
+async def startup_event():
+    """Log startup info"""
+    print("\n" + "="*60)
+    print("Dark Connecticut AI Rapper System")
+    print("="*60)
+    print(f"Primary Provider: {engine.primary_provider}")
+    print(f"Framework Enforcement: {engine.enforce_framework}")
+    print(f"Available Providers: {engine.get_available_providers()}")
+    print("="*60 + "\n")
 
 
 if __name__ == "__main__":
     import uvicorn
-    
-    host = os.getenv("API_HOST", "0.0.0.0")
-    port = int(os.getenv("API_PORT", "8000"))
-    
-    uvicorn.run(
-        "main:app",
-        host=host,
-        port=port,
-        reload=True,
-        log_level="info",
-    )
+    uvicorn.run(app, host="0.0.0.0", port=8000)
