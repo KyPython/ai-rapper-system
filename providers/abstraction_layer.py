@@ -1,306 +1,350 @@
 """
-Provider Abstraction Layer
-Universal API wrapper for ANY LLM provider - local or cloud
+FastAPI Server with Dark Connecticut Music Framework Enforcement
+Endpoints for lyric generation with framework validation
 """
 
-from typing import Optional, Dict, Any, List
-from enum import Enum
-import logging
-from datetime import datetime
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import Optional, List
+import os
+from dotenv import load_dotenv
+import asyncio
 
-logger = logging.getLogger(__name__)
+from providers.abstraction_layer import (
+    LyricEngine, 
+    GenerationConfig, 
+    FrameworkValidator,
+    DARK_CT_FRAMEWORK
+)
 
+load_dotenv()
 
-class ProviderType(Enum):
-    """Supported provider types"""
-    LOCAL = "local"
-    CLAUDE = "claude"
-    OPENAI = "openai"
-    GEMINI = "gemini"
-    GROQ = "groq"
-    OLLAMA = "ollama"
-    MANUAL = "manual"
+# Initialize FastAPI
+app = FastAPI(
+    title="Dark Connecticut AI Rapper System",
+    description="Framework-enforced lyric generation with multi-provider support",
+    version="1.0.0"
+)
 
-
-class GenerationConfig:
-    """Universal configuration for text generation"""
-    def __init__(
-        self,
-        max_tokens: int = 512,
-        temperature: float = 0.9,
-        top_p: float = 0.95,
-        frequency_penalty: float = 0.3,
-        presence_penalty: float = 0.3,
-        stop_sequences: Optional[List[str]] = None,
-    ):
-        self.max_tokens = max_tokens
-        self.temperature = temperature
-        self.top_p = top_p
-        self.frequency_penalty = frequency_penalty
-        self.presence_penalty = presence_penalty
-        self.stop_sequences = stop_sequences or []
-
-
-class GenerationResult:
-    """Standardized result from any provider"""
-    def __init__(
-        self,
-        text: str,
-        provider: str,
-        model: str,
-        tokens_used: int = 0,
-        latency_ms: float = 0.0,
-        metadata: Optional[Dict[str, Any]] = None,
-    ):
-        self.text = text
-        self.provider = provider
-        self.model = model
-        self.tokens_used = tokens_used
-        self.latency_ms = latency_ms
-        self.metadata = metadata or {}
-        self.timestamp = datetime.utcnow()
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "text": self.text,
-            "provider": self.provider,
-            "model": self.model,
-            "tokens_used": self.tokens_used,
-            "latency_ms": self.latency_ms,
-            "metadata": self.metadata,
-            "timestamp": self.timestamp.isoformat(),
-        }
-
-
-class LyricEngine:
-    """
-    Universal lyric generation engine
-    Works with ANY provider or none at all (manual mode)
-    """
+# Initialize LyricEngine
+config = {
+    "primary_provider": os.getenv("PRIMARY_PROVIDER", "local"),
+    "local_model_path": os.getenv("LOCAL_MODEL_PATH", "./models/my_model.gguf"),
+    "fallback_to_local": os.getenv("FALLBACK_TO_LOCAL", "true").lower() == "true",
+    "offline_mode": os.getenv("OFFLINE_MODE", "false").lower() == "true",
+    "enforce_framework": os.getenv("ENFORCE_FRAMEWORK", "true").lower() == "true",
     
-    def __init__(self, config: Dict[str, Any]):
-        self.config = config
-        self.providers = {}
-        self.primary_provider = config.get("primary_provider", "local")
-        self.fallback_enabled = config.get("fallback_to_local", True)
-        self.offline_mode = config.get("offline_mode", False)
-        
-        # Initialize providers
-        self._init_providers()
-        
-        logger.info(f"LyricEngine initialized with primary provider: {self.primary_provider}")
-        logger.info(f"Available providers: {list(self.providers.keys())}")
+    # Cloud providers
+    "enable_claude": os.getenv("ENABLE_CLAUDE", "false").lower() == "true",
+    "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY"),
+    
+    "enable_openai": os.getenv("ENABLE_OPENAI", "false").lower() == "true",
+    "openai_api_key": os.getenv("OPENAI_API_KEY"),
+    
+    "enable_gemini": os.getenv("ENABLE_GEMINI", "false").lower() == "true",
+    "google_api_key": os.getenv("GOOGLE_API_KEY"),
+    
+    "enable_groq": os.getenv("ENABLE_GROQ", "false").lower() == "true",
+    "groq_api_key": os.getenv("GROQ_API_KEY"),
+}
 
-    def _init_providers(self):
-        """Initialize all enabled providers"""
-        from .local_adapter import LocalAdapter
-        
-        # Local is ALWAYS available (primary system)
-        try:
-            self.providers["local"] = LocalAdapter(self.config)
-            logger.info("✅ Local provider initialized")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize local provider: {e}")
-            raise RuntimeError("Local provider is required but failed to initialize")
-        
-        # Cloud providers (optional)
-        if not self.offline_mode:
-            self._init_cloud_providers()
+engine = LyricEngine(config)
 
-    def _init_cloud_providers(self):
-        """Initialize cloud providers if enabled and configured"""
-        # Claude
-        if self.config.get("enable_claude", False) and self.config.get("anthropic_api_key"):
-            try:
-                from .claude_adapter import ClaudeAdapter
-                self.providers["claude"] = ClaudeAdapter(self.config)
-                logger.info("✅ Claude provider initialized")
-            except Exception as e:
-                logger.warning(f"⚠️  Claude provider failed: {e}")
-        
-        # OpenAI
-        if self.config.get("enable_openai", False) and self.config.get("openai_api_key"):
-            try:
-                from .openai_adapter import OpenAIAdapter
-                self.providers["openai"] = OpenAIAdapter(self.config)
-                logger.info("✅ OpenAI provider initialized")
-            except Exception as e:
-                logger.warning(f"⚠️  OpenAI provider failed: {e}")
-        
-        # Gemini
-        if self.config.get("enable_gemini", False) and self.config.get("google_api_key"):
-            try:
-                from .gemini_adapter import GeminiAdapter
-                self.providers["gemini"] = GeminiAdapter(self.config)
-                logger.info("✅ Gemini provider initialized")
-            except Exception as e:
-                logger.warning(f"⚠️  Gemini provider failed: {e}")
-        
-        # Groq
-        if self.config.get("enable_groq", False) and self.config.get("groq_api_key"):
-            try:
-                from .groq_adapter import GroqAdapter
-                self.providers["groq"] = GroqAdapter(self.config)
-                logger.info("✅ Groq provider initialized")
-            except Exception as e:
-                logger.warning(f"⚠️  Groq provider failed: {e}")
 
-    async def generate(
-        self,
-        prompt: str,
-        provider: Optional[str] = None,
-        config: Optional[GenerationConfig] = None,
-    ) -> GenerationResult:
-        """
-        Generate lyrics using specified provider
-        
-        Args:
-            prompt: The generation prompt
-            provider: Provider to use (defaults to primary_provider)
-            config: Generation configuration
-            
-        Returns:
-            GenerationResult with generated text
-        """
-        provider = provider or self.primary_provider
-        config = config or GenerationConfig()
-        
-        # Try primary provider
-        if provider in self.providers:
-            try:
-                result = await self.providers[provider].generate(prompt, config)
-                logger.info(f"✅ Generation successful via {provider}")
-                return result
-            except Exception as e:
-                logger.error(f"❌ {provider} generation failed: {e}")
-                if not self.fallback_enabled:
-                    raise
-        else:
-            logger.warning(f"⚠️  Provider '{provider}' not available")
-        
-        # Fallback to local if enabled
-        if self.fallback_enabled and provider != "local":
-            logger.info("🔄 Falling back to local provider")
-            try:
-                return await self.providers["local"].generate(prompt, config)
-            except Exception as e:
-                logger.error(f"❌ Local fallback failed: {e}")
-                raise
-        
-        raise RuntimeError(f"No available provider could generate lyrics")
+# ============================================================================
+# REQUEST/RESPONSE MODELS
+# ============================================================================
 
-    async def generate_ensemble(
-        self,
-        prompt: str,
-        providers: Optional[List[str]] = None,
-        config: Optional[GenerationConfig] = None,
-    ) -> List[GenerationResult]:
-        """
-        Generate lyrics from multiple providers simultaneously
-        Useful for comparing outputs and selecting best lines
-        
-        Args:
-            prompt: The generation prompt
-            providers: List of providers to use (defaults to all available)
-            config: Generation configuration
-            
-        Returns:
-            List of GenerationResults from each provider
-        """
-        providers = providers or list(self.providers.keys())
-        config = config or GenerationConfig()
-        
-        results = []
-        for provider in providers:
-            if provider in self.providers:
-                try:
-                    result = await self.generate(prompt, provider, config)
-                    results.append(result)
-                except Exception as e:
-                    logger.warning(f"⚠️  Ensemble generation failed for {provider}: {e}")
-        
-        if not results:
-            raise RuntimeError("No providers succeeded in ensemble generation")
-        
-        logger.info(f"✅ Ensemble generation complete: {len(results)}/{len(providers)} providers succeeded")
-        return results
+class GenerateRequest(BaseModel):
+    """Request for lyric generation"""
+    prompt: str
+    provider: Optional[str] = None
+    max_tokens: Optional[int] = 512
+    temperature: Optional[float] = 0.9
+    enforce_framework: Optional[bool] = True
 
-    def get_manual_input(self, prompt: str) -> GenerationResult:
-        """
-        Manual mode - YOU write the lyrics
-        AI is completely bypassed
-        """
-        print("\n" + "="*60)
-        print("MANUAL MODE - Write your own lyrics")
-        print("="*60)
-        print(f"\nPrompt: {prompt}\n")
-        print("Enter your lyrics (press Ctrl+D or Ctrl+Z when done):")
-        print("-"*60)
-        
-        lines = []
-        try:
-            while True:
-                line = input()
-                lines.append(line)
-        except EOFError:
-            pass
-        
-        text = "\n".join(lines)
-        
-        return GenerationResult(
-            text=text,
-            provider="manual",
-            model="human",
-            tokens_used=len(text.split()),
-            latency_ms=0.0,
-            metadata={"source": "manual_input"},
-        )
 
-    def health_check(self) -> Dict[str, Any]:
-        """Check health status of all providers"""
-        status = {
-            "primary_provider": self.primary_provider,
-            "offline_mode": self.offline_mode,
-            "fallback_enabled": self.fallback_enabled,
-            "providers": {}
+class GenerateResponse(BaseModel):
+    """Response with generated lyrics"""
+    lyrics: str
+    provider: str
+    model: str
+    framework_compliant: bool
+    framework_violations: List[str]
+    tokens_used: int
+    latency_ms: float
+
+
+class EnsembleRequest(BaseModel):
+    """Request for multi-provider ensemble generation"""
+    prompt: str
+    providers: Optional[List[str]] = None
+    max_tokens: Optional[int] = 512
+    temperature: Optional[float] = 0.9
+    enforce_framework: Optional[bool] = True
+    return_best_only: Optional[bool] = False
+
+
+class ValidateRequest(BaseModel):
+    """Request to validate existing lyrics"""
+    lyrics: str
+
+
+class ValidateResponse(BaseModel):
+    """Validation results"""
+    compliant: bool
+    violations: List[str]
+    score: float
+
+
+# ============================================================================
+# ENDPOINTS
+# ============================================================================
+
+@app.get("/")
+async def root():
+    """Welcome endpoint"""
+    return {
+        "name": "Dark Connecticut AI Rapper System",
+        "version": "1.0.0",
+        "framework_enforced": True,
+        "endpoints": {
+            "health": "/health",
+            "generate": "/generate",
+            "generate_ensemble": "/generate/ensemble",
+            "validate": "/validate",
+            "framework": "/framework",
+            "providers": "/providers",
         }
-        
-        for name, provider in self.providers.items():
-            try:
-                is_healthy = provider.health_check()
-                status["providers"][name] = {
-                    "available": True,
-                    "healthy": is_healthy,
-                    "model": provider.model_name
-                }
-            except Exception as e:
-                status["providers"][name] = {
-                    "available": False,
-                    "healthy": False,
-                    "error": str(e)
-                }
-        
-        return status
+    }
 
-    def switch_provider(self, provider: str) -> bool:
-        """
-        Switch primary provider in under 5 seconds
-        
-        Args:
-            provider: New primary provider
-            
-        Returns:
-            True if switch successful
-        """
-        if provider not in self.providers:
-            logger.error(f"❌ Provider '{provider}' not available")
-            return False
-        
-        old_provider = self.primary_provider
-        self.primary_provider = provider
-        logger.info(f"🔄 Switched from {old_provider} → {provider}")
-        return True
 
-    def get_available_providers(self) -> List[str]:
-        """Get list of available providers"""
-        return list(self.providers.keys())
+@app.get("/health")
+async def health():
+    """Health check"""
+    return {
+        "status": "healthy",
+        "engine": engine.health_check()
+    }
+
+
+@app.get("/framework")
+async def get_framework():
+    """Get the Dark Connecticut Music Framework"""
+    return {
+        "framework": engine.get_framework(),
+        "enforcement_enabled": engine.enforce_framework
+    }
+
+
+@app.post("/generate")
+async def generate(request: GenerateRequest) -> GenerateResponse:
+    """
+    Generate lyrics with Dark CT Framework enforcement
+    
+    Example:
+    {
+        "prompt": "Write a hook about breaking the family curse through sacrifice",
+        "provider": "local",
+        "enforce_framework": true
+    }
+    """
+    try:
+        config = GenerationConfig(
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
+            enforce_framework=request.enforce_framework
+        )
+        
+        result = await engine.generate(request.prompt, request.provider, config)
+        
+        return GenerateResponse(
+            lyrics=result.text,
+            provider=result.provider,
+            model=result.model,
+            framework_compliant=result.framework_compliant,
+            framework_violations=result.framework_violations,
+            tokens_used=result.tokens_used,
+            latency_ms=result.latency_ms
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/generate/ensemble")
+async def generate_ensemble(request: EnsembleRequest) -> dict:
+    """
+    Generate from multiple providers simultaneously
+    All outputs framework-validated and sorted by compliance
+    
+    Example:
+    {
+        "prompt": "Write Verse 1 about the Merritt Parkway commute",
+        "providers": ["local", "claude", "openai"],
+        "enforce_framework": true,
+        "return_best_only": false
+    }
+    """
+    try:
+        config = GenerationConfig(
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
+            enforce_framework=request.enforce_framework
+        )
+        
+        results = await engine.generate_ensemble(request.prompt, request.providers, config)
+        
+        # Format responses
+        formatted_results = []
+        for result in results:
+            formatted_results.append({
+                "lyrics": result.text,
+                "provider": result.provider,
+                "model": result.model,
+                "framework_compliant": result.framework_compliant,
+                "framework_violations": result.framework_violations,
+                "tokens_used": result.tokens_used,
+                "latency_ms": result.latency_ms,
+            })
+        
+        if request.return_best_only and formatted_results:
+            return {
+                "best_result": formatted_results[0],
+                "total_attempts": len(formatted_results),
+                "framework_compliant_count": sum(1 for r in formatted_results if r["framework_compliant"])
+            }
+        
+        return {
+            "results": formatted_results,
+            "total_attempts": len(formatted_results),
+            "framework_compliant_count": sum(1 for r in formatted_results if r["framework_compliant"]),
+            "best_result": formatted_results[0] if formatted_results else None
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/validate")
+async def validate(request: ValidateRequest) -> ValidateResponse:
+    """
+    Validate existing lyrics against Dark CT Framework
+    
+    Example:
+    {
+        "lyrics": "[Hook]\nCruising up the Merritt, same road, same scene..."
+    }
+    """
+    try:
+        compliant, violations = FrameworkValidator.validate(request.lyrics)
+        
+        # Calculate compliance score (0-100)
+        score = 100 if not violations else max(0, 100 - (len(violations) * 15))
+        
+        return ValidateResponse(
+            compliant=compliant,
+            violations=violations,
+            score=score
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/providers")
+async def list_providers():
+    """List available providers"""
+    return {
+        "available": engine.get_available_providers(),
+        "primary": engine.primary_provider,
+        "details": engine.health_check()["providers"]
+    }
+
+
+@app.post("/providers/switch")
+async def switch_provider(provider: str):
+    """Switch primary provider"""
+    success = engine.switch_provider(provider)
+    
+    if not success:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Provider '{provider}' not available"
+        )
+    
+    return {
+        "status": "switched",
+        "new_primary": engine.primary_provider,
+        "available": engine.get_available_providers()
+    }
+
+
+@app.post("/framework/toggle")
+async def toggle_framework(enabled: bool):
+    """Enable/disable framework enforcement globally"""
+    engine.set_framework_enforcement(enabled)
+    
+    return {
+        "framework_enforcement": engine.enforce_framework,
+        "status": "updated"
+    }
+
+
+@app.get("/framework/checklist")
+async def get_framework_checklist():
+    """Get framework compliance checklist"""
+    return {
+        "checklist": [
+            "✓ Does this serve 'defiant hope' thesis?",
+            "✓ Minor key harmony implied (or compatible)?",
+            "✓ Specific personal details (Bridgeport-grounded)?",
+            "✓ NO toxic/negative framing?",
+            "✓ Authentic voice (no fake dialogue)?",
+            "✓ Flow changes where narrative breaks?",
+            "✓ Ends on IV or VI (cadential ambiguity)?",
+            "✓ Could realistically come from this person's life?"
+        ],
+        "sonic_signature": {
+            "bpm": "135-150 (default 140)",
+            "key": "Minor (struggle focus)",
+            "drums": "Grimy 808s, muffled kicks (250-400 Hz), double-tap snare, swung hi-hats",
+            "melody": "Dark melodic loops (minor key), NO bright synths",
+            "tone": "Anthem for survival (NOT dance/celebration)"
+        }
+    }
+
+
+# ============================================================================
+# ERROR HANDLERS
+# ============================================================================
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    """Global exception handler"""
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "error_type": type(exc).__name__}
+    )
+
+
+# ============================================================================
+# STARTUP
+# ============================================================================
+
+@app.on_event("startup")
+async def startup_event():
+    """Log startup info"""
+    print("\n" + "="*60)
+    print("Dark Connecticut AI Rapper System")
+    print("="*60)
+    print(f"Primary Provider: {engine.primary_provider}")
+    print(f"Framework Enforcement: {engine.enforce_framework}")
+    print(f"Available Providers: {engine.get_available_providers()}")
+    print("="*60 + "\n")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
